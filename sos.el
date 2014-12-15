@@ -79,18 +79,20 @@ https://github.com/omouse/fogbugz-mode"
 (defun sos-insert-search-result (item)
   "Inserts the contents of StackOverflow JSON object, `item',
 into the current buffer."
-  (insert (format "* %s: %s [[http://stackoverflow.com/q/%d][link]]\n"
-                  (upcase (subseq (cdr (assoc 'item_type item)) 0 1))
-                  (cdr (assoc 'title item))
-                  (cdr (assoc 'question_id item)))
+  (let ((link (format "[[http://stackoverflow.com/q/%d][link]]"
+                      (cdr (assoc 'question_id item)))))
+    (insert (format "* %s: %s %s\n"
+                    (upcase (subseq (cdr (assoc 'item_type item)) 0 1))
+                    (cdr (assoc 'title item))
+                    link)
           ":PROPERTIES:\n"
           ":SO_TAGS: " (reduce (lambda (x y) (format "%s %s" x y))
-                              (cdr (assoc 'tags item))) "\n"
+                               (cdr (assoc 'tags item))) "\n"
           ":END:\n"
           (cdr (assoc 'excerpt item))
-          "\n\n** (Read more)\n"
+          "\n\n** (Read more) " link "\n"
           (cdr (assoc 'body item))
-          "\n"))
+          "\n")))
 
 ;;;###autoload
 (defun sos (query)
