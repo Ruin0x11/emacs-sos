@@ -32,16 +32,24 @@
 
 (provide 'sos)
 
-(defvar sos-results)
+(defvar sos-results 'nil
+  "Search query results for StackOverflow questions.")
 
-(defvar sos-question-list-window)
-(defvar sos-answer-view-window)
+(defvar sos-question-list-window 'nil
+  "Current window displaying StackOverflow questions." )
+(defvar sos-answer-view-window 'nil
+  "Current window displaying StackOverflow answers.")
 
-(defvar sos-question-list-buffer)
+(defvar sos-question-list-buffer 'nil
+  "Current buffer displaying StackOverflow questions.")
 
 (defvar sos-get-answers 'nil
   "If non-nil retrieve and SO's answers to SO's questions when building the search result buffer.
 This will slow down the process.")
+
+(defvar sos-answer-code-block-regexp
+  "^#\\+BEGIN_CODE\n\\(\\(?:.\\|\n\\)*\\)\n#\\+END_CODE"
+  "Regexp for matching SOS Answer code blocks.")
 
 (defun sos-decode-html-entities (str)
   "Decodes HTML entities in a string."
@@ -223,6 +231,7 @@ API Reference: http://api.stackexchange.com/docs/excerpt-search"
 
 
 (defun sos-current-result ()
+  "Returns the current hightlighted StackOverflow question in the tabulated list."
   (elt sos-results (tabulated-list-get-id)))
 
 ;;;###autoload
@@ -275,7 +284,7 @@ API Reference: http://api.stackexchange.com/docs/excerpt-search"
 (defface sos-answer-code-block-face
   '((((class color) (background light)) (:foreground "purple"))
     (((class color) (background dark)) (:foreground "light gray" :background "#3E3D31")))
-  "SOS answer mode face used to highlight keywords."
+  "SOS answer mode face used to highlight code blocks."
   :group 'sos-answer)
 
 (defun sos-answer-html2text-code (p1 p2 p3 p4)
@@ -291,13 +300,35 @@ API Reference: http://api.stackexchange.com/docs/excerpt-search"
 
 (defun sos-answer-html2text-pre (p1 p2 p3 p4)
   (put-text-property p2 p3 'face 'sos-answer-code-block-face)
+  (put-text-property p2 p3 'sos-code-block t)
   ;; (html2text-delete-tags p1 p2 p3 p4)
   (replace-region p3 p4 "#+END_CODE")
   (replace-region p1 p2 "#+BEGIN_CODE\n")
   )
 
-;; in the future?
-;; http://jblevins.org/log/mmm
+(defun sos-answer-pos-in-code-block? (pos)
+  (get-text-property pos 'sos-code-block))
+
+(defun sos-answer-point-in-code-block? ()
+  (sos-answer-pos-in-code-block? (point)))
+
+(defun sos-answer-code-at-point-p ()
+  "Match an SOS Answer code block at point.
+
+   Group 1 will contain the matched code block."
+  (interactive)
+  ;; (unless (sos-answer-point-in-code-block?)
+  ;;   (error "Not in SOS code block."))
+  (thing-at-point-looking-at sos-answer-code-block-regexp))
+
+(defun sos-answer-yank-code-block ()
+  "Adds the Sos Answer code block at point to the kill ring."
+  (interactive)
+  (if (sos-answer-code-at-point-p)
+      (progn
+        (copy-region-as-kill (match-beginning 1) (match-end 1))
+        (message "Copied code block.")
+        )))
 
 (defun sos-answer-quit-buffer ()
   (interactive)
@@ -338,6 +369,7 @@ API Reference: http://api.stackexchange.com/docs/excerpt-search"
   (let ((map (make-sparse-keymap)))
     (set-keymap-parent map special-mode-map)
     (define-key map "q" 'sos-answer-quit-buffer)
+    (define-key map "y" 'sos-answer-yank-code-block)
     ;; (define-key map "n" 'sos-answer-next-question)
     ;; (define-key map "p" 'sos-answer-previous-question)
     map)
