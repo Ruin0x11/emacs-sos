@@ -142,7 +142,13 @@ API Reference: http://api.stackexchange.com/docs/excerpt-search"
          (response-buffer (url-retrieve-synchronously api-url))
          (json-response (sos-get-response-body response-buffer)))
     ;; set up the buffer
-    (switch-to-buffer-other-window (concat "*sos - " query "*"))
+    (if (window-live-p sos-question-list-window)
+        (progn
+          (select-window sos-question-list-window)
+          (kill-buffer sos-question-list-buffer)
+          (switch-to-buffer (concat "*sos - " query "*")))
+      (switch-to-buffer-other-window (concat "*sos - " query "*")))
+
     (setq sos-question-list-window (selected-window))
     (setq sos-question-list-buffer (current-buffer))
     (sos-mode)
@@ -182,18 +188,7 @@ API Reference: http://api.stackexchange.com/docs/excerpt-search"
       (setq tabulated-list-entries (nreverse entries)))
     (tabulated-list-init-header)
     (tabulated-list-print)
-
-    ;; (sos-decode-html-entities)
-    ;; ;; strip out HTML tags
-    ;; (goto-char (point-min))
-    ;; (while (search-forward "<span class=\"highlight\">" nil t)
-    ;;   (replace-match "" nil t))
-    ;; (goto-char (point-min))
-    ;; (while (search-forward "</span>" nil t)
-    ;;   (replace-match "" nil t))
-
-    ;; (goto-char (point-min))
-    ;; (org-global-cycle 1)
+    (goto-char (point-min))
     ))
 
 
@@ -274,7 +269,6 @@ API Reference: http://api.stackexchange.com/docs/excerpt-search"
 
 (defvar sos-mode-map
   (let ((map (make-sparse-keymap)))
-    (set-keymap-parent map tabulated-list-mode-map)
     (define-key map "\C-m" 'sos-answer)
     (define-key map "j" 'next-line)
     (define-key map "k" 'previous-line)
@@ -399,8 +393,8 @@ API Reference: http://api.stackexchange.com/docs/excerpt-search"
 
 (define-derived-mode sos-answer-mode special-mode "SOS Answer")
 
-(add-to-list 'evil-emacs-state-modes 'sos-mode)
 ;; (add-to-list 'evil-emacs-state-modes 'sos-answer-mode)
+(evil-make-overriding-map sos-mode-map 'normal t)
 (evil-make-overriding-map sos-answer-mode-map 'normal t)
 (ruin/window-movement-for-map sos-answer-mode-map)
 (ruin/window-movement-for-map sos-mode-map)
