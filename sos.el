@@ -32,6 +32,9 @@
 
 (provide 'sos)
 
+(defvar sos-api-key "6ocCcuEcIyvBvLn44Gh)CQ(("
+  "API key for StackExchange.")
+
 (defvar sos-results 'nil
   "Search query results for StackOverflow questions.")
 
@@ -47,9 +50,11 @@
   "If non-nil retrieve and SO's answers to SO's questions when building the search result buffer.
 This will slow down the process.")
 
+
 (defvar sos-answer-code-block-regexp
-  "^#\\+BEGIN_CODE\n\\(\\(?:.\\|\n\\)*\\)\n#\\+END_CODE"
+  "^#\\+BEGIN_CODE\n\\(\\(?:.\\|\n\\)+?\\)\n#\\+END_CODE"
   "Regexp for matching SOS Answer code blocks.")
+
 
 (defun sos-decode-html-entities (str)
   "Decodes HTML entities in a string."
@@ -132,7 +137,8 @@ API Reference: http://api.stackexchange.com/docs/excerpt-search"
                           "&sort=votes"
                           "&tagged=" tag
                           "&q=" (url-hexify-string query)
-                          "&site=stackoverflow"))
+                          "&site=stackoverflow"
+                          "&key=" sos-api-key))
          (response-buffer (url-retrieve-synchronously api-url))
          (json-response (sos-get-response-body response-buffer)))
     ;; set up the buffer
@@ -201,7 +207,8 @@ API Reference: http://api.stackexchange.com/docs/excerpt-search"
                           "?order=desc"
                           "&sort=votes"
                           "&filter=withbody"
-                          "&site=stackoverflow"))
+                          "&site=stackoverflow"
+                          "&key=" sos-api-key))
          (response-buffer (url-retrieve-synchronously api-url))
          (json-response (progn
                           (switch-to-buffer response-buffer)
@@ -288,7 +295,8 @@ API Reference: http://api.stackexchange.com/docs/excerpt-search"
   :group 'sos-answer)
 
 (defun sos-answer-html2text-code (p1 p2 p3 p4)
-  (put-text-property p2 p3 'face 'sos-answer-keywords-face)
+  (if (not (get-text-property p3 'sos-code-block))
+      (put-text-property p2 p3 'face 'sos-answer-keywords-face))
   (html2text-delete-tags p1 p2 p3 p4)
   )
 
@@ -302,8 +310,8 @@ API Reference: http://api.stackexchange.com/docs/excerpt-search"
   (put-text-property p2 p3 'face 'sos-answer-code-block-face)
   (put-text-property p2 p3 'sos-code-block t)
   ;; (html2text-delete-tags p1 p2 p3 p4)
-  (replace-region p3 p4 "#+END_CODE")
-  (replace-region p1 p2 "#+BEGIN_CODE\n")
+  (replace-region p3 p4 (propertize "#+END_CODE" 'face font-lock-comment-face))
+  (replace-region p1 p2 (propertize "#+BEGIN_CODE\n" 'face font-lock-comment-face))
   )
 
 (defun sos-answer-pos-in-code-block? (pos)
