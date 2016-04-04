@@ -191,7 +191,7 @@ API Reference: http://api.stackexchange.com/docs/excerpt-search"
                             (int-to-string id))
                           "/answers"
                           "?order=desc"
-                          "&sort=activity"
+                          "&sort=votes"
                           "&filter=withbody"
                           "&site=stackoverflow"))
          (response-buffer (url-retrieve-synchronously api-url))
@@ -205,16 +205,22 @@ API Reference: http://api.stackexchange.com/docs/excerpt-search"
          (sos-string
           (concat "Answers [" (int-to-string n-answers) "]\n")))
     (while (< i n-answers) 
-      (let ((answer (elt answer-list i)))
+      (let* ((answer (elt answer-list i))
+             (accepted? (not (eq json-false (cdr (assoc 'is_accepted answer))))))
         (setq sos-string
               (concat sos-string
-                      (concat "Answer no. " (int-to-string (1+ i)) 
-                              " Score: " (int-to-string (cdr (assoc 'score answer)))
-                              "\n"
-                              (cdr (assoc 'body answer))
-                              "\n"))
+                      (concat
+                       (propertize (concat "Answer " (int-to-string (1+ i)) (if accepted? " (Accepted)" "")
+                                           " Score: " (int-to-string (cdr (assoc 'score answer)))
+                                           "\n") 'face 'underline)
+                       (cdr (assoc 'body answer))
+                       "\n")
+
+                      )
               i (1+ i))))
     sos-string))
+
+
 
 (defun sos-current-result ()
   (elt sos-results (tabulated-list-get-id)))
@@ -226,23 +232,15 @@ API Reference: http://api.stackexchange.com/docs/excerpt-search"
   (let ((id (cdr (assoc 'question_id (sos-current-result)))))
     (if (not id)
         (message "Cannot see question ID at point.")
-      (setq sos-answer-view-window
-            (cond ((with-demoted-errors "Unable to split window: %S"
-                     (split-window-vertically 20)))
-                  (t ;; no splitting; just use the currently selected one
-                   (selected-window))))
+      (if (not (window-live-p sos-answer-view-window))
+          (setq sos-answer-view-window
+                (cond ((with-demoted-errors "Unable to split window: %S"
+                         (split-window-vertically 20)))
+                      (t ;; no splitting; just use the currently selected one
+                       (selected-window)))))
       (select-window sos-answer-view-window)
       (switch-to-buffer "*sos - answer*")
       (sos-answer-mode)
-
-      (make-local-variable 'font-lock-keywords-case-fold-search)
-      (make-local-variable 'font-lock-keywords)
-      (make-local-variable 'font-lock-no-comments)
-      (make-local-variable 'html2text-format-tag-list)
-      (make-local-variable 'html2text-remove-tag-list)
-      (make-local-variable 'html2text-remove-tag-list2)
-      (setq font-lock-keywords-case-fold-search t)
-      (setq font-lock-defaults `(sos-answer-font-lock-keywords))
 
       ;; an html2text bug removes "pre" since "p" is a substring
       (setq html2text-remove-tag-list (remove "p" html2text-remove-tag-list))
@@ -264,32 +262,26 @@ API Reference: http://api.stackexchange.com/docs/excerpt-search"
     (define-key map "j" 'next-line)
     (define-key map "k" 'previous-line)
     map)
-"Keymap used for sos-mode commands.")
+  "Keymap used for sos-mode commands.")
 
 (define-derived-mode sos-mode tabulated-list-mode "SOS")
 
 (defface sos-answer-keywords-face
   '((((class color) (background light)) (:foreground "purple"))
-    (((class color) (background dark)) (:foreground "salmon")))
+    (((class color) (background dark)) :foreground "salmon"))
   "SOS answer mode face used to highlight keywords."
   :group 'sos-answer)
 
 (defface sos-answer-code-block-face
   '((((class color) (background light)) (:foreground "purple"))
-    (((class color) (background dark)) (:foreground "blue")))
+    (((class color) (background dark)) (:foreground "light gray" :background "#3E3D31")))
   "SOS answer mode face used to highlight keywords."
   :group 'sos-answer)
 
-
-(defconst sos-answer-font-lock-keywords
-  (list
-    '("#\+\\([^<]*\\)$" . 'font-lock-comment-face)
-    )
-  "Sample font face definitions.")
-
 (defun sos-answer-html2text-code (p1 p2 p3 p4)
   (put-text-property p2 p3 'face 'sos-answer-keywords-face)
-  (html2text-delete-tags p1 p2 p3 p4))
+  (html2text-delete-tags p1 p2 p3 p4)
+  )
 
 (defun replace-region (from to string)
   "Replace the region specified by FROM and TO to STRING."
@@ -298,9 +290,11 @@ API Reference: http://api.stackexchange.com/docs/excerpt-search"
   (delete-char (- to from)))
 
 (defun sos-answer-html2text-pre (p1 p2 p3 p4)
-  (put-text-property p2 p3 'face 'sos-answer-keywords-face)
+  (put-text-property p2 p3 'face 'sos-answer-code-block-face)
+  ;; (html2text-delete-tags p1 p2 p3 p4)
+  (replace-region p3 p4 "#+END_CODE")
   (replace-region p1 p2 "#+BEGIN_CODE\n")
-  (replace-region (+ p3 8) (+ p4 8) "#+END_CODE"))
+  )
 
 ;; in the future?
 ;; http://jblevins.org/log/mmm
@@ -310,35 +304,35 @@ API Reference: http://api.stackexchange.com/docs/excerpt-search"
   (unless (eq major-mode 'sos-answer-mode)
     (error "Must be in SOS answer mode"))
   (let ((curbuf (current-buffer)) (curwin (selected-window))
-	 (question-win))
+        (question-win))
     (walk-windows
-      (lambda (win)
-	;; check whether the headers buffer window is visible
-	(when (eq sos-question-list-buffer (window-buffer win))
-	  (setq question-win win))
-	;; and kill any _other_ (non-selected) window that shows the current
-	;; buffer
-	(when
-	  (and
-	    (eq curbuf (window-buffer win)) ;; does win show curbuf?
-	    (not (eq curwin win))	    ;; but it's not the curwin?
-	    (not (one-window-p))) ;; and not the last one on the frame?
-	  (delete-window win))))  ;; delete it!
+     (lambda (win)
+       ;; check whether the headers buffer window is visible
+       (when (eq sos-question-list-buffer (window-buffer win))
+         (setq question-win win))
+       ;; and kill any _other_ (non-selected) window that shows the current
+       ;; buffer
+       (when
+           (and
+            (eq curbuf (window-buffer win)) ;; does win show curbuf?
+            (not (eq curwin win))	    ;; but it's not the curwin?
+            (not (one-window-p))) ;; and not the last one on the frame?
+         (delete-window win))))  ;; delete it!
     ;; now, all *other* windows should be gone.
     ;; if the headers view is also visible, kill ourselves + window; otherwise
     ;; switch to the headers view
     (if (window-live-p question-win)
-      ;; headers are visible
-      (progn
-	(kill-buffer-and-window) ;; kill the view win
-        (setq sos-question-list-window nil)
-	(select-window question-win)) ;; and switch to the headers win...
+        ;; headers are visible
+        (progn
+          (kill-buffer-and-window) ;; kill the view win
+          (setq sos-question-list-window nil)
+          (select-window question-win)) ;; and switch to the headers win...
       ;; headers are not visible...
       (progn
-	(kill-buffer)
+        (kill-buffer)
         (setq sos-question-list-window nil)
-	(when (buffer-live-p sos-question-list-buffer)
-	  (switch-to-buffer sos-question-list-buffer))))))
+        (when (buffer-live-p sos-question-list-buffer)
+          (switch-to-buffer sos-question-list-buffer))))))
 
 (defvar sos-answer-mode-map
   (let ((map (make-sparse-keymap)))
@@ -347,12 +341,13 @@ API Reference: http://api.stackexchange.com/docs/excerpt-search"
     ;; (define-key map "n" 'sos-answer-next-question)
     ;; (define-key map "p" 'sos-answer-previous-question)
     map)
-"Keymap used for sos-mode commands.")
+  "Keymap used for sos-mode commands.")
 
 (define-derived-mode sos-answer-mode special-mode "SOS Answer")
 
 (add-to-list 'evil-emacs-state-modes 'sos-mode)
-(add-to-list 'evil-emacs-state-modes 'sos-answer-mode)
+;; (add-to-list 'evil-emacs-state-modes 'sos-answer-mode)
+(evil-make-overriding-map sos-answer-mode-map 'normal t)
 (ruin/window-movement-for-map sos-answer-mode-map)
 (ruin/window-movement-for-map sos-mode-map)
 
