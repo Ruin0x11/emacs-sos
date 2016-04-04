@@ -239,22 +239,30 @@ API Reference: http://api.stackexchange.com/docs/excerpt-search"
       (make-local-variable 'font-lock-keywords)
       (make-local-variable 'font-lock-no-comments)
       (make-local-variable 'html2text-format-tag-list)
+      (make-local-variable 'html2text-remove-tag-list)
+      (make-local-variable 'html2text-remove-tag-list2)
       (setq font-lock-keywords-case-fold-search t)
       (setq font-lock-defaults `(sos-answer-font-lock-keywords))
 
-      ;; (add-to-list 'html2text-format-tag-list '("code" . sos-answer-html2text-code) )
+      ;; an html2text bug removes "pre" since "p" is a substring
+      (setq html2text-remove-tag-list (remove "p" html2text-remove-tag-list))
+      (add-to-list 'html2text-remove-tag-list2 "p")
+
+      (add-to-list 'html2text-format-tag-list '("code" . sos-answer-html2text-code) )
       (add-to-list 'html2text-format-tag-list '("pre" . sos-answer-html2text-pre) )
 
       (let ((buffer-read-only nil))
         (erase-buffer)
         (insert (sos-get-answers id))
-         (html2text)
+        (html2text)
         (goto-char (point-min))))))
 
 (defvar sos-mode-map
   (let ((map (make-sparse-keymap)))
     (set-keymap-parent map tabulated-list-mode-map)
     (define-key map "\C-m" 'sos-answer)
+    (define-key map "j" 'next-line)
+    (define-key map "k" 'previous-line)
     map)
 "Keymap used for sos-mode commands.")
 
@@ -268,14 +276,14 @@ API Reference: http://api.stackexchange.com/docs/excerpt-search"
 
 (defface sos-answer-code-block-face
   '((((class color) (background light)) (:foreground "purple"))
-    (((class color) (background dark)) (:foreground "gold")))
+    (((class color) (background dark)) (:foreground "blue")))
   "SOS answer mode face used to highlight keywords."
   :group 'sos-answer)
 
 
 (defconst sos-answer-font-lock-keywords
   (list
-    '("<code>\\([^<]*\\)</code>" . 'sos-answer-keywords-face)
+    '("#\+\\([^<]*\\)$" . 'font-lock-comment-face)
     )
   "Sample font face definitions.")
 
@@ -290,10 +298,9 @@ API Reference: http://api.stackexchange.com/docs/excerpt-search"
   (delete-char (- to from)))
 
 (defun sos-answer-html2text-pre (p1 p2 p3 p4)
-  (put-text-property p2 p3 'face 'sos-answer-code-block-face)
+  (put-text-property p2 p3 'face 'sos-answer-keywords-face)
   (replace-region p1 p2 "#+BEGIN_CODE\n")
-  (replace-region p3 p4 "#+END_CODE\n")
-  )
+  (replace-region (+ p3 8) (+ p4 8) "#+END_CODE"))
 
 ;; in the future?
 ;; http://jblevins.org/log/mmm
@@ -337,6 +344,8 @@ API Reference: http://api.stackexchange.com/docs/excerpt-search"
   (let ((map (make-sparse-keymap)))
     (set-keymap-parent map special-mode-map)
     (define-key map "q" 'sos-answer-quit-buffer)
+    ;; (define-key map "n" 'sos-answer-next-question)
+    ;; (define-key map "p" 'sos-answer-previous-question)
     map)
 "Keymap used for sos-mode commands.")
 
@@ -344,6 +353,8 @@ API Reference: http://api.stackexchange.com/docs/excerpt-search"
 
 (add-to-list 'evil-emacs-state-modes 'sos-mode)
 (add-to-list 'evil-emacs-state-modes 'sos-answer-mode)
+(ruin/window-movement-for-map sos-answer-mode-map)
+(ruin/window-movement-for-map sos-mode-map)
 
 (provide 'sos)
 
