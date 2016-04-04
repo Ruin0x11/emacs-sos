@@ -259,6 +259,7 @@ API Reference: http://api.stackexchange.com/docs/excerpt-search"
       (sos-answer-mode)
 
       ;; an html2text bug removes "pre" since "p" is a substring
+      (make-local-variable 'visual-wrap-col)
       (setq html2text-remove-tag-list (remove "p" html2text-remove-tag-list))
       (add-to-list 'html2text-remove-tag-list2 "p")
 
@@ -277,6 +278,7 @@ API Reference: http://api.stackexchange.com/docs/excerpt-search"
     (define-key map "\C-m" 'sos-answer)
     (define-key map "j" 'next-line)
     (define-key map "k" 'previous-line)
+    (define-key map "q" 'kill-buffer-and-window)
     map)
   "Keymap used for sos-mode commands.")
 
@@ -337,6 +339,18 @@ API Reference: http://api.stackexchange.com/docs/excerpt-search"
         (copy-region-as-kill (match-beginning 1) (match-end 1))
         (message "Copied code block.")
         )))
+
+(defun sos-answer-next-code-block ()
+  (interactive)
+  (if (re-search-forward sos-answer-code-block-regexp)
+      (goto-char (match-beginning 1)))
+  )
+
+(defun sos-answer-previous-code-block ()
+  (interactive)
+  (if (re-search-backward sos-answer-code-block-regexp)
+      (goto-char (match-beginning 1)))
+  )
 
 (defun sos-answer-quit-buffer ()
   (interactive)
