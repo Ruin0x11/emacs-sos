@@ -213,16 +213,21 @@ API Reference: http://api.stackexchange.com/docs/excerpt-search"
          (n-answers (length answer-list))
          (i 0)
          (sos-string
-          (concat "Answers [" (int-to-string n-answers) "]\n")))
+          ""
+          ;; (concat "Answers [" (int-to-string n-answers) "]\n")
+          ))
     (while (< i n-answers) 
       (let* ((answer (elt answer-list i))
-             (accepted? (not (eq json-false (cdr (assoc 'is_accepted answer))))))
+             (accepted? (not (eq json-false (cdr (assoc 'is_accepted answer)))))
+             (author (cdr (assoc 'owner answer)))
+             (author-name (cdr (assoc 'display_name author))))
         (setq sos-string
               (concat sos-string
                       (concat
-                       (propertize (concat "Answer " (int-to-string (1+ i)) (if accepted? " (Accepted)" "")
+                       (propertize (concat "Answer " (int-to-string (1+ i)) " by " author-name (if accepted? " (Accepted)" "")
                                            " Score: " (int-to-string (cdr (assoc 'score answer)))
-                                           "\n") 'face 'underline)
+                                           "\n") 'face 'underline
+                                                 'sos-answer-section t)
                        (cdr (assoc 'body answer))
                        "\n")
 
@@ -267,12 +272,20 @@ API Reference: http://api.stackexchange.com/docs/excerpt-search"
         (html2text)
         (goto-char (point-min))))))
 
+(defun sos-quit-buffer ()
+  (interactive)
+  (unless (eq major-mode 'sos-mode)
+    (error "Must be in sos-mode"))
+  (when (window-live-p sos-answer-view-window)
+    (delete-window sos-answer-view-window))
+  (kill-buffer-and-window))
+
 (defvar sos-mode-map
   (let ((map (make-sparse-keymap)))
     (define-key map "\C-m" 'sos-answer)
     (define-key map "j" 'next-line)
     (define-key map "k" 'previous-line)
-    (define-key map "q" 'kill-buffer-and-window)
+    (define-key map "q" 'sos-quit-buffer)
     map)
   "Keymap used for sos-mode commands.")
 
@@ -310,6 +323,21 @@ API Reference: http://api.stackexchange.com/docs/excerpt-search"
   (replace-region p1 p2 (propertize "#+BEGIN_CODE\n" 'face font-lock-comment-face))
   )
 
+(defun sos-goto-property-change (prop &optional direction)
+  "Move forward to the next change of text-property PROP.
+Return the new value of PROP at point.
+If DIRECTION is negative, move backwards instead."
+  (let ((func (if (and (numberp direction)
+                       (< direction 0))
+                  #'previous-single-property-change
+                #'next-single-property-change))
+        (limit (if (and (numberp direction)
+                        (< direction 0))
+                   (point-min) (point-max))))
+    (goto-char (funcall func (point) prop nil limit))
+    (get-text-property (point) prop)))
+
+
 (defun sos-answer-pos-in-code-block? (pos)
   (get-text-property pos 'sos-code-block))
 
@@ -346,10 +374,35 @@ API Reference: http://api.stackexchange.com/docs/excerpt-search"
       (goto-char (match-beginning 1)))
   )
 
+
+(defun sos-answer-next-section (&optional n)
+  "Move down to next section (question or answer) of this buffer.
+Prefix argument N moves N sections down or up."
+  (interactive "p")
+  (let ((count (if n (abs n) 1)))
+    (while (> count 0)
+      ;; This will either move us to the next section, or move out of
+      ;; the current one.
+      (unless (sos-goto-property-change 'sos-answer-section n)
+        ;; If all we did was move out the current one, then move again
+        ;; and we're guaranteed to reach the next section.
+        (sos-goto-property-change 'sos-answer-section n))
+      (unless (get-char-property (point) 'invisible)
+        (cl-decf count))))
+  (when (equal (selected-window) (get-buffer-window))
+    (recenter 0))
+  )
+
+(defun sos-answer-previous-section (&optional n)
+  "Move down to previous section (question or answer) of this buffer.
+Prefix argument moves N sections up or down."
+  (interactive "p")
+  (sos-answer-next-section (- (or n 1))))
+
 (defun sos-answer-quit-buffer ()
   (interactive)
   (unless (eq major-mode 'sos-answer-mode)
-    (error "Must be in SOS answer mode"))
+    (error "Must be in sos-answer-mode"))
   (let ((curbuf (current-buffer)) (curwin (selected-window))
         (question-win))
     (walk-windows
@@ -386,8 +439,8 @@ API Reference: http://api.stackexchange.com/docs/excerpt-search"
     (set-keymap-parent map special-mode-map)
     (define-key map "q" 'sos-answer-quit-buffer)
     (define-key map "y" 'sos-answer-yank-code-block)
-    ;; (define-key map "n" 'sos-answer-next-question)
-    ;; (define-key map "p" 'sos-answer-previous-question)
+    (define-key map "n" 'sos-answer-next-section)
+    (define-key map "p" 'sos-answer-previous-section)
     map)
   "Keymap used for sos-mode commands.")
 
