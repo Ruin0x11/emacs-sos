@@ -29,8 +29,7 @@
 (require 'url)
 (require 'url-http)
 (require 'tabulated-list)
-
-(provide 'sos)
+(require 'sos-google)
 
 (defvar sos-api-key "6ocCcuEcIyvBvLn44Gh)CQ(("
   "API key for StackExchange.")
@@ -50,10 +49,16 @@
   "If non-nil retrieve and SO's answers to SO's questions when building the search result buffer.
 This will slow down the process.")
 
-
 (defvar sos-answer-code-block-regexp
   "^#\\+BEGIN_CODE\n\\(\\(?:.\\|\n\\)+?\\)\n#\\+END_CODE"
   "Regexp for matching SOS Answer code blocks.")
+
+(defvar sos-google-question-id-regexp
+  "stackoverflow.com/questions/\\([0-9]+?\\)/"
+  "Regexp for getting question id from a StackOverflow URL.")
+
+;; www.stackoverflow.com/questions/12345/asdf
+;; stackoverflow.com/questions/\\([0-9]+?\\)/
 
 
 (defun sos-decode-html-entities (str)
@@ -125,6 +130,91 @@ into the current buffer."
 	       (sos-get-answers id))
 	     "\n")))
 
+(defun sos-build-results-google (query tag)
+  "Get tabulated list entries using Google.
+
+   Probably gives the most relevant results. Similar to how2."
+  (let* (
+         (google-query (concat "site:stackoverflow.com " query " " tag))
+         (google-results (sos-google--search google-query))
+         (count (length google-results))
+         entries
+         list-results '())
+
+    (setq tabulated-list-format
+          (vector
+           '("title" 60 t)
+           ;; '("url" 10 t)
+           ;; '("score" 10 t)
+           ))
+
+    (dotimes (i count)
+      (let* ((result (elt google-results i))
+             (result-name (plist-get result :title))
+             (result-url (plist-get result :url))
+             (result-score 0)
+             (result-question-id
+              (cond ((string-match sos-google-question-id-regexp result-url) (match-string 1 result-url))
+                    (t nil))))
+
+        (when result-question-id
+          (push (list i (vector
+
+                         result-name
+
+                         ))
+                entries)
+          (setq list-results (cons (acons 'question_id result-question-id '()) list-results)))
+        )
+      )
+    (setq sos-results (nreverse list-results))
+    (setq tabulated-list-entries (nreverse entries))
+    ))
+
+(defun sos-build-results-api (query tag)
+  "Get tabulated list entries using the StackExchange API.
+
+   May give less relevant results than using Google."
+  (let* ((api-url (concat "http://api.stackexchange.com/2.2/search/excerpts"
+                          "?order=desc"
+                          "&sort=votes"
+                          "&tagged=" tag
+                          "&q=" (url-hexify-string query)
+                          "&site=stackoverflow"
+                          "&key=" sos-api-key))
+         (response-buffer (url-retrieve-synchronously api-url))
+         (json-response (sos-get-response-body response-buffer))
+         (results (cdr (assoc 'items json-response)))
+         (count (length results))
+         (quota (cdr (assoc 'quota_remaining json-response)))
+         entries)
+
+    (setq sos-results results)
+
+    (setq tabulated-list-format
+          (vector
+           '("title" 80 t)
+           '("score" 13 t)
+           ;; '("modules" 30 t)
+           ;; '("name" 1 t)
+           ))
+
+    (setq tabulated-list-sort-key nil)
+
+    (dotimes (i count)
+      (let* ((result (elt results i))
+             (result-name (sos-decode-html-entities (cdr (assoc 'title result))))
+             (result-score (int-to-string (cdr (assoc 'score result)))))
+
+        (push (list i (vector
+
+                       result-name
+                       result-score
+
+                       ))
+              entries)))
+    (message "Quota remaining: %s" (int-to-string quota))
+    (setq tabulated-list-entries (nreverse entries))))
 
 ;;;###autoload
 (defun sos (query tag)
@@ -157,35 +247,7 @@ API Reference: http://api.stackexchange.com/docs/excerpt-search"
     (visual-line-mode t)
     ;; (insert "#+TITLE: StackOverflow Search: " query "\n")
 
-    (setq tabulated-list-format
-            (vector
-                    '("title" 80 t)
-                    '("score" 13 t)
-                    ;; '("modules" 30 t)
-                    ;; '("name" 1 t)
-                    ))
-
-    (setq tabulated-list-sort-key nil)
-
-    (let* ((results (cdr (assoc 'items json-response)))
-           (count (length results))
-            entries)
-
-      (setq sos-results results)
-
-      (dotimes (i count)
-        (let* ((result (elt results i))
-               (result-name (sos-decode-html-entities (cdr (assoc 'title result))))
-               (result-score (int-to-string (cdr (assoc 'score result)))))
-
-          (push (list i (vector
-
-                         result-name
-                         result-score
-
-                         ))
-                entries)))
-      (setq tabulated-list-entries (nreverse entries)))
+    (sos-build-results-google query tag)
     (tabulated-list-init-header)
     (tabulated-list-print)
     (goto-char (point-min))
@@ -227,15 +289,13 @@ API Reference: http://api.stackexchange.com/docs/excerpt-search"
                        (propertize (concat "Answer " (int-to-string (1+ i)) " by " author-name (if accepted? " (Accepted)" "")
                                            " Score: " (int-to-string (cdr (assoc 'score answer)))
                                            "\n") 'face 'underline
-                                                 'sos-answer-section t)
+                                           'sos-answer-section t)
                        (cdr (assoc 'body answer))
                        "\n")
 
                       )
               i (1+ i))))
     sos-string))
-
-
 
 (defun sos-current-result ()
   "Returns the current hightlighted StackOverflow question in the tabulated list."
@@ -251,16 +311,17 @@ API Reference: http://api.stackexchange.com/docs/excerpt-search"
       (if (not (window-live-p sos-answer-view-window))
           (setq sos-answer-view-window
                 (cond ((with-demoted-errors "Unable to split window: %S"
-                         (split-window-vertically 20)))
+                         (split-window-vertically 10)))
                       (t ;; no splitting; just use the currently selected one
                        (selected-window)))))
       (select-window sos-answer-view-window)
-      (switch-to-buffer "*sos - answer*")
+      (switch-to-buffer "*sos answer*")
       (sos-answer-mode)
 
       ;; an html2text bug removes "pre" since "p" is a substring
       (make-local-variable 'visual-wrap-col)
       (setq html2text-remove-tag-list (remove "p" html2text-remove-tag-list))
+      (setq html2text-remove-tag-list (remove "img" html2text-remove-tag-list))
       (add-to-list 'html2text-remove-tag-list2 "p")
 
       (add-to-list 'html2text-format-tag-list '("code" . sos-answer-html2text-code) )
