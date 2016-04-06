@@ -31,13 +31,6 @@
   :group 'convenience
   :group 'comm)
 
-(defcustom sos-google-search-function 'sos-google-html-search
-  "The function that should be used to get the search results.
-Available functions are currently `sos-google-api-search' and
-`sos-google-html-search'."
-  :type 'symbol
-  :group 'sos-google)
-
 (defcustom sos-google-tld "com"
   "The TLD of the google url to be used (com, de, fr, co.uk etc.)."
   :type 'string
@@ -47,15 +40,6 @@ Available functions are currently `sos-google-api-search' and
   "Force use of regexp html parsing even if libxml is available."
   :type 'boolean
   :group 'sos-google)
-
-(defcustom sos-google-actions
-  '(("Browse URL" . browse-url)
-    ("Browse URL with EWW" . (lambda (candidate)
-                               (eww-browse-url
-                                (sos-google-display-to-real candidate)))))
-  "List of actions for sos-google sources."
-  :group 'sos-google
-  :type '(alist :key-type string :value-type function))
 
 
 (defvar sos-google-input-history nil)
@@ -149,10 +133,6 @@ If 'com' TLD is set use 'encrypted' subdomain to avoid country redirects."
   (let* ((buf (sos-google--response-buffer-from-search text))
          (results (sos-google--parse buf)))
     results))
-
-(defun sos-google-search ()
-  "Invoke the search function set by `sos-google-search-function'."
-  (funcall sos-google-search-function))
 
 (provide 'sos-google)
 

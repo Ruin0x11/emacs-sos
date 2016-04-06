@@ -57,6 +57,12 @@ This will slow down the process.")
   "stackoverflow.com/questions/\\([0-9]+?\\)/"
   "Regexp for getting question id from a StackOverflow URL.")
 
+(defcustom sos-build-results-function 'sos-build-results-google
+  "Function used to get StackOverflow results. Use either
+   `sos-build-results-api' or `sos-build-results-google'."
+  :type 'symbol
+  :group 'sos)
+
 ;; www.stackoverflow.com/questions/12345/asdf
 ;; stackoverflow.com/questions/\\([0-9]+?\\)/
 
@@ -130,12 +136,12 @@ into the current buffer."
 	       (sos-get-answers id))
 	     "\n")))
 
-(defun sos-build-results-google (query tag)
+(defun sos-build-results-google (query site)
   "Get tabulated list entries using Google.
 
    Probably gives the most relevant results. Similar to how2."
   (let* (
-         (google-query (concat "site:stackoverflow.com " query " " tag))
+         (google-query (concat "site:stackoverflow.com " query " " site))
          (google-results (sos-google--search google-query))
          (count (length google-results))
          entries
@@ -216,42 +222,36 @@ into the current buffer."
     (message "Quota remaining: %s" (int-to-string quota))
     (setq tabulated-list-entries (nreverse entries))))
 
+(defun sos-build-results (query site)
+  "Retrieves a list of StackOverflow results by calling
+   `sos-build-results-function'."
+  (funcall sos-build-results-function query site))
+
 ;;;###autoload
 (defun sos (query tag)
   "Searches StackOverflow for the given `query'. Displays excerpts from the search results.
 
 API Reference: http://api.stackexchange.com/docs/excerpt-search"
   (interactive "sSearch StackOverflow: \nsTag: ")
-  (let* ((api-url (concat "http://api.stackexchange.com/2.2/search/excerpts"
-                          "?order=desc"
-                          "&sort=votes"
-                          "&tagged=" tag
-                          "&q=" (url-hexify-string query)
-                          "&site=stackoverflow"
-                          "&key=" sos-api-key))
-         (response-buffer (url-retrieve-synchronously api-url))
-         (json-response (sos-get-response-body response-buffer)))
-    ;; set up the buffer
-    (if (window-live-p sos-question-list-window)
-        (progn
-          (select-window sos-question-list-window)
-          (kill-buffer sos-question-list-buffer)
-          (switch-to-buffer (concat "*sos - " query "*")))
-      (switch-to-buffer-other-window (concat "*sos - " query "*")))
 
-    (setq sos-question-list-window (selected-window))
-    (setq sos-question-list-buffer (current-buffer))
-    (sos-mode)
-    (erase-buffer)
-    ;; (org-mode)
-    (visual-line-mode t)
-    ;; (insert "#+TITLE: StackOverflow Search: " query "\n")
+  ;; set up the buffer
+  (if (window-live-p sos-question-list-window)
+      (progn
+        (select-window sos-question-list-window)
+        (kill-buffer sos-question-list-buffer)
+        (switch-to-buffer (concat "*sos - " query "*")))
+    (switch-to-buffer-other-window (concat "*sos - " query "*")))
 
-    (sos-build-results-google query tag)
-    (tabulated-list-init-header)
-    (tabulated-list-print)
-    (goto-char (point-min))
-    ))
+  (setq sos-question-list-window (selected-window))
+  (setq sos-question-list-buffer (current-buffer))
+  (sos-mode)
+  (erase-buffer)
+  (visual-line-mode t)
+
+  (sos-build-results query tag)
+  (tabulated-list-init-header)
+  (tabulated-list-print)
+  (goto-char (point-min)))
 
 
 (defun sos-get-answers (id)
